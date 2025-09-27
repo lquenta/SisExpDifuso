@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0",
+  "project": "Politica_Arancelaria",
+  "logic": {
+    "and_op": "min",
+    "or_op": "max",
+    "implication": "min",
+    "aggregation": "max",
+    "defuzz_default": "centroid"
+  },
+  "variables": [
+    {
+      "name": "Déficit",
+      "kind": "input",
+      "universe": [0.0, 10.0],
+      "terms": [
+        {"label": "Bajo", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 4.0}},
+        {"label": "Medio", "mf": {"type": "tri", "a": 2.5, "b": 5.0, "c": 7.5}},
+        {"label": "Alto", "mf": {"type": "tri", "a": 6.0, "b": 10.0, "c": 10.0}}
+      ]
+    },
+    {
+      "name": "Presión",
+      "kind": "input",
+      "universe": [0.0, 100.0],
+      "terms": [
+        {"label": "Baja", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 40.0}},
+        {"label": "Media", "mf": {"type": "tri", "a": 20.0, "b": 50.0, "c": 80.0}},
+        {"label": "Alta", "mf": {"type": "tri", "a": 60.0, "b": 100.0, "c": 100.0}}
+      ]
+    },
+    {
+      "name": "Tarifa",
+      "kind": "output",
+      "universe": [0.0, 100.0],
+      "defuzz": "centroid",
+      "terms": [
+        {"label": "Baja", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 30.0}},
+        {"label": "Moderada", "mf": {"type": "tri", "a": 20.0, "b": 50.0, "c": 80.0}},
+        {"label": "Alta", "mf": {"type": "tri", "a": 70.0, "b": 100.0, "c": 100.0}}
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "R1",
+      "if": "Déficit is Bajo AND Presión is Baja",
+      "then": [{"variable": "Tarifa", "term": "Baja"}],
+      "weight": 1.0,
+      "note": "Situación estable, tarifa baja"
+    },
+    {
+      "id": "R2",
+      "if": "Déficit is Bajo AND Presión is Media",
+      "then": [{"variable": "Tarifa", "term": "Baja"}],
+      "weight": 1.0,
+      "note": "Déficit bajo compensa presión media"
+    },
+    {
+      "id": "R3",
+      "if": "Déficit is Bajo AND Presión is Alta",
+      "then": [{"variable": "Tarifa", "term": "Moderada"}],
+      "weight": 1.0,
+      "note": "Presión alta requiere respuesta moderada"
+    },
+    {
+      "id": "R4",
+      "if": "Déficit is Medio AND Presión is Baja",
+      "then": [{"variable": "Tarifa", "term": "Moderada"}],
+      "weight": 1.0,
+      "note": "Déficit medio requiere acción moderada"
+    },
+    {
+      "id": "R5",
+      "if": "Déficit is Medio AND Presión is Media",
+      "then": [{"variable": "Tarifa", "term": "Moderada"}],
+      "weight": 1.0,
+      "note": "Equilibrio entre déficit y presión"
+    },
+    {
+      "id": "R6",
+      "if": "Déficit is Medio AND Presión is Alta",
+      "then": [{"variable": "Tarifa", "term": "Alta"}],
+      "weight": 1.0,
+      "note": "Déficit medio con alta presión requiere tarifa alta"
+    },
+    {
+      "id": "R7",
+      "if": "Déficit is Alto AND Presión is Baja",
+      "then": [{"variable": "Tarifa", "term": "Alta"}],
+      "weight": 1.0,
+      "note": "Déficit alto requiere tarifa alta independientemente de presión"
+    },
+    {
+      "id": "R8",
+      "if": "Déficit is Alto AND Presión is Media",
+      "then": [{"variable": "Tarifa", "term": "Alta"}],
+      "weight": 1.0,
+      "note": "Déficit alto con presión media requiere tarifa alta"
+    },
+    {
+      "id": "R9",
+      "if": "Déficit is Alto AND Presión is Alta",
+      "then": [{"variable": "Tarifa", "term": "Alta"}],
+      "weight": 1.0,
+      "note": "Situación crítica, tarifa alta necesaria"
+    }
+  ]
+}

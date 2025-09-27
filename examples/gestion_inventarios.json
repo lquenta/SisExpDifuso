@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "project": "Gestion_Inventarios",
+  "logic": {
+    "and_op": "min",
+    "or_op": "max",
+    "implication": "min",
+    "aggregation": "max",
+    "defuzz_default": "centroid"
+  },
+  "variables": [
+    {
+      "name": "Demanda",
+      "kind": "input",
+      "universe": [0.0, 100.0],
+      "terms": [
+        {"label": "Baja", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 40.0}},
+        {"label": "Media", "mf": {"type": "tri", "a": 20.0, "b": 50.0, "c": 80.0}},
+        {"label": "Alta", "mf": {"type": "tri", "a": 60.0, "b": 100.0, "c": 100.0}}
+      ]
+    },
+    {
+      "name": "Stock_Actual",
+      "kind": "input",
+      "universe": [0.0, 100.0],
+      "terms": [
+        {"label": "Bajo", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 40.0}},
+        {"label": "Medio", "mf": {"type": "tri", "a": 20.0, "b": 50.0, "c": 80.0}},
+        {"label": "Alto", "mf": {"type": "tri", "a": 60.0, "b": 100.0, "c": 100.0}}
+      ]
+    },
+    {
+      "name": "Tiempo_Entrega",
+      "kind": "input",
+      "universe": [1.0, 30.0],
+      "terms": [
+        {"label": "Corto", "mf": {"type": "tri", "a": 1.0, "b": 1.0, "c": 10.0}},
+        {"label": "Medio", "mf": {"type": "tri", "a": 5.0, "b": 15.0, "c": 25.0}},
+        {"label": "Largo", "mf": {"type": "tri", "a": 20.0, "b": 30.0, "c": 30.0}}
+      ]
+    },
+    {
+      "name": "Costo_Almacenamiento",
+      "kind": "input",
+      "universe": [0.0, 1.0],
+      "terms": [
+        {"label": "Bajo", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 0.4}},
+        {"label": "Medio", "mf": {"type": "tri", "a": 0.2, "b": 0.5, "c": 0.8}},
+        {"label": "Alto", "mf": {"type": "tri", "a": 0.6, "b": 1.0, "c": 1.0}}
+      ]
+    },
+    {
+      "name": "Cantidad_Pedido",
+      "kind": "output",
+      "universe": [0.0, 200.0],
+      "defuzz": "centroid",
+      "terms": [
+        {"label": "Muy_Poco", "mf": {"type": "tri", "a": 0.0, "b": 0.0, "c": 40.0}},
+        {"label": "Poco", "mf": {"type": "tri", "a": 20.0, "b": 50.0, "c": 80.0}},
+        {"label": "Moderado", "mf": {"type": "tri", "a": 60.0, "b": 100.0, "c": 140.0}},
+        {"label": "Mucho", "mf": {"type": "tri", "a": 120.0, "b": 160.0, "c": 200.0}},
+        {"label": "Muy_Mucho", "mf": {"type": "tri", "a": 180.0, "b": 200.0, "c": 200.0}}
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "R1",
+      "if": "Demanda is Baja AND Stock_Actual is Alto",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Muy_Poco"}],
+      "weight": 1.0,
+      "note": "Demanda baja y stock alto, no pedir"
+    },
+    {
+      "id": "R2",
+      "if": "Demanda is Baja AND Stock_Actual is Medio",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Poco"}],
+      "weight": 1.0,
+      "note": "Demanda baja y stock medio, pedir poco"
+    },
+    {
+      "id": "R3",
+      "if": "Demanda is Baja AND Stock_Actual is Bajo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Moderado"}],
+      "weight": 1.0,
+      "note": "Demanda baja pero stock bajo, pedir moderado"
+    },
+    {
+      "id": "R4",
+      "if": "Demanda is Media AND Stock_Actual is Alto",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Poco"}],
+      "weight": 1.0,
+      "note": "Demanda media y stock alto, pedir poco"
+    },
+    {
+      "id": "R5",
+      "if": "Demanda is Media AND Stock_Actual is Medio",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Moderado"}],
+      "weight": 1.0,
+      "note": "Demanda media y stock medio, pedir moderado"
+    },
+    {
+      "id": "R6",
+      "if": "Demanda is Media AND Stock_Actual is Bajo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Mucho"}],
+      "weight": 1.0,
+      "note": "Demanda media y stock bajo, pedir mucho"
+    },
+    {
+      "id": "R7",
+      "if": "Demanda is Alta AND Stock_Actual is Alto",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Moderado"}],
+      "weight": 1.0,
+      "note": "Demanda alta pero stock alto, pedir moderado"
+    },
+    {
+      "id": "R8",
+      "if": "Demanda is Alta AND Stock_Actual is Medio",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Mucho"}],
+      "weight": 1.0,
+      "note": "Demanda alta y stock medio, pedir mucho"
+    },
+    {
+      "id": "R9",
+      "if": "Demanda is Alta AND Stock_Actual is Bajo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Muy_Mucho"}],
+      "weight": 1.0,
+      "note": "Demanda alta y stock bajo, pedir muy mucho"
+    },
+    {
+      "id": "R10",
+      "if": "Tiempo_Entrega is Largo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Mucho"}],
+      "weight": 0.8,
+      "note": "Tiempo de entrega largo requiere pedidos mayores"
+    },
+    {
+      "id": "R11",
+      "if": "Costo_Almacenamiento is Alto",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Poco"}],
+      "weight": 0.7,
+      "note": "Alto costo de almacenamiento reduce cantidad de pedido"
+    },
+    {
+      "id": "R12",
+      "if": "Tiempo_Entrega is Corto AND Costo_Almacenamiento is Bajo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Moderado"}],
+      "weight": 0.6,
+      "note": "Condiciones favorables para pedidos moderados"
+    },
+    {
+      "id": "R13",
+      "if": "Demanda is Alta AND Tiempo_Entrega is Largo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Muy_Mucho"}],
+      "weight": 0.9,
+      "note": "Demanda alta con entrega larga requiere stock de seguridad"
+    },
+    {
+      "id": "R14",
+      "if": "Stock_Actual is Bajo AND Tiempo_Entrega is Largo",
+      "then": [{"variable": "Cantidad_Pedido", "term": "Mucho"}],
+      "weight": 0.8,
+      "note": "Stock bajo con entrega larga requiere pedido urgente"
+    }
+  ]
+}
