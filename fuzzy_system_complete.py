@@ -237,21 +237,53 @@ class FuzzyInferenceEngine:
         return fired_rules
     
     def _evaluate_condition(self, condition: str, membership_values: Dict[Tuple[str, str], float]) -> float:
-        """Evaluar condición de regla (versión simplificada)."""
-        # Para este ejemplo, evaluamos condiciones simples como "Variable is Term"
+        """Evaluar condición de regla con soporte completo para AND, OR y NOT."""
+        condition = condition.strip()
+        
+        # Manejar NOT
+        if condition.startswith("NOT "):
+            not_condition = condition[4:].strip()
+            return 1.0 - self._evaluate_condition(not_condition, membership_values)
+        
+        # Manejar paréntesis para agrupar operaciones
+        if "(" in condition and ")" in condition:
+            return self._evaluate_grouped_condition(condition, membership_values)
+        
+        # Manejar AND
         if " AND " in condition:
             parts = condition.split(" AND ")
-            result = 1.0
-            for part in parts:
-                part = part.strip()
-                if " is " in part:
-                    var_name, term_name = part.split(" is ")
-                    var_name = var_name.strip()
-                    term_name = term_name.strip()
-                    key = (var_name, term_name)
-                    result = min(result, membership_values.get(key, 0.0))
-            return result
-        elif " is " in condition:
+            if self.config.logic.and_op == "min":
+                result = 1.0
+                for part in parts:
+                    part = part.strip()
+                    result = min(result, self._evaluate_condition(part, membership_values))
+                return result
+            elif self.config.logic.and_op == "prod":
+                result = 1.0
+                for part in parts:
+                    part = part.strip()
+                    result *= self._evaluate_condition(part, membership_values)
+                return result
+        
+        # Manejar OR
+        if " OR " in condition:
+            parts = condition.split(" OR ")
+            if self.config.logic.or_op == "max":
+                result = 0.0
+                for part in parts:
+                    part = part.strip()
+                    result = max(result, self._evaluate_condition(part, membership_values))
+                return result
+            elif self.config.logic.or_op == "prob_or":
+                result = 0.0
+                for part in parts:
+                    part = part.strip()
+                    part_value = self._evaluate_condition(part, membership_values)
+                    result = result + part_value - (result * part_value)
+                return result
+        
+        # Condición simple: "Variable is Term"
+        if " is " in condition:
             var_name, term_name = condition.split(" is ")
             var_name = var_name.strip()
             term_name = term_name.strip()
@@ -259,6 +291,27 @@ class FuzzyInferenceEngine:
             return membership_values.get(key, 0.0)
         
         return 0.0
+    
+    def _evaluate_grouped_condition(self, condition: str, membership_values: Dict[Tuple[str, str], float]) -> float:
+        """Evaluar condiciones con paréntesis para agrupar operaciones."""
+        import re
+        
+        # Encontrar el primer paréntesis más interno
+        pattern = r'\(([^()]+)\)'
+        match = re.search(pattern, condition)
+        
+        if match:
+            inner_condition = match.group(1)
+            inner_result = self._evaluate_condition(inner_condition, membership_values)
+            
+            # Reemplazar la expresión entre paréntesis con el resultado
+            new_condition = condition.replace(f"({inner_condition})", str(inner_result))
+            
+            # Continuar evaluando recursivamente
+            return self._evaluate_condition(new_condition, membership_values)
+        
+        # Si no hay paréntesis, evaluar normalmente
+        return self._evaluate_condition(condition, membership_values)
     
     def aggregate_outputs(self, fired_rules: List[Dict[str, Any]]) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
         """Agregar funciones de pertenencia implícitas."""
@@ -418,6 +471,27 @@ def create_example_config() -> FuzzySystemConfig:
                 then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
                 weight=1.0,
                 note="Situación crítica, tarifa alta necesaria"
+            ),
+            Rule(
+                id="R4",
+                if_condition="Déficit is Alto OR Presión is Alta",
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Moderada")],
+                weight=0.8,
+                note="Cualquier condición extrema requiere tarifa moderada"
+            ),
+            Rule(
+                id="R5",
+                if_condition="NOT Déficit is Bajo",
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Moderada")],
+                weight=0.7,
+                note="Si el déficit no es bajo, aplicar tarifa moderada"
+            ),
+            Rule(
+                id="R6",
+                if_condition="(Déficit is Medio OR Déficit is Alto) AND NOT Presión is Baja",
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
+                weight=0.9,
+                note="Déficit medio/alto con presión no baja = tarifa alta"
             )
         ]
     )
