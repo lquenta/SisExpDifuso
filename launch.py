@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Launcher script for the fuzzy panel application.
+Launcher para la versión moderna simplificada del Sistema Experto Difuso.
 """
 
 import sys
@@ -11,22 +11,32 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-# Import the application components directly
+# Import the modern application components
 import panel as pn
-from core.schema import create_example_config
-from fuzzy_io.loader import FuzzyConfigLoader
-from app.views import FuzzyPanelApp
+from app.views import ModernFuzzyPanel
 
 def main():
-    """Main function to run the fuzzy panel application."""
+    """Main function to run the modern fuzzy panel application."""
     # Configure Panel
-    pn.extension('tabulator', sizing_mode='stretch_width')
+    pn.extension(
+        'tabulator', 
+        sizing_mode='stretch_width',
+        notifications=True
+    )
     
-    # Create the main application
-    app = FuzzyPanelApp()
+    # Create the modern application
+    app = ModernFuzzyPanel()
     
     # Serve the application
-    pn.serve(app.get_layout(), show=True, port=5006, allow_websocket_origin=["*"])
+    pn.serve(
+        app.get_layout(), 
+        show=True, 
+        port=5008,  # Different port
+        allow_websocket_origin=["*"],
+        title="Sistema Experto Difuso - Moderno",
+        autoreload=True
+    )
 
 if __name__ == "__main__":
     main()
+

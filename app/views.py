@@ -1,330 +1,479 @@
+#!/usr/bin/env python3
 """
-Main views and layout for the fuzzy panel application.
+Interfaz moderna simplificada para el Sistema Experto Difuso.
 """
 
 import panel as pn
 import param
+import pandas as pd
 import numpy as np
-from typing import Dict, Any, Optional, List
 from pathlib import Path
+from typing import Dict, Any, List, Optional
+import json
 
 from core.schema import FuzzySystemConfig, create_example_config
-from core.engine import FuzzyInferenceEngine, create_inference_engine
-from core.explain import FuzzyExplanation, create_explanation
+from core.engine import create_inference_engine, FuzzyInferenceResult
+from core.explain import FuzzyExplanation
 from fuzzy_io.loader import FuzzyConfigLoader
-from fuzzy_io.report import FuzzyReportGenerator
-from app.components import (
-    InputSliders, MembershipVisualization, RuleTable, 
-    OutputDisplay, ExplanationPanel, SystemConfigPanel
-)
+from core.mfuncs import create_membership_function
+from bokeh.plotting import figure
+from bokeh.palettes import Category10
 
 
-class FuzzyPanelApp(param.Parameterized):
-    """Main fuzzy panel application."""
+class ModernFuzzyPanel(param.Parameterized):
+    """Panel moderno y funcional para sistemas expertos difusos."""
     
-    # Configuration
-    config = param.ClassSelector(class_=FuzzySystemConfig, default=create_example_config())
-    current_config_path = param.String(default="")
-    
-    # Input values
-    input_values = param.Dict(default={})
-    
-    # Inference results
+    # Parámetros principales
+    current_config = param.ClassSelector(class_=FuzzySystemConfig)
     inference_result = param.Parameter(default=None)
     explanation = param.Parameter(default=None)
-    
-    # UI state
-    active_tab = param.String(default="inference")
+    input_values = param.Dict(default={})
     
     def __init__(self, **params):
         super().__init__(**params)
         
-        # Initialize components
-        self.config_loader = FuzzyConfigLoader()
-        self.report_generator = FuzzyReportGenerator()
-        self.inference_engine = None
+        # Inicializar configuración - cargar desde archivo JSON
+        from fuzzy_io.loader import FuzzyConfigLoader
+        loader = FuzzyConfigLoader()
+        try:
+            # Cargar configuración completa desde el archivo JSON
+            self.current_config = loader.load_from_file("examples/politica_arancelaria.json")
+        except Exception as e:
+            print(f"Error cargando configuración: {e}, usando configuración de ejemplo")
+            self.current_config = create_example_config()
         
-        # Initialize input values
+        # Inicializar valores de entrada
         self._initialize_input_values()
         
-        # Create UI components
+        # Crear componentes
         self._create_components()
         
-        # Update inference when inputs change
-        self.param.watch(self._update_inference, ['input_values', 'config'])
+        # Crear layout principal
+        self.main_layout = self._create_main_layout()
     
     def _initialize_input_values(self):
-        """Initialize input values to middle of universe ranges."""
-        input_vars = self.config.get_input_variables()
+        """Inicializar valores de entrada."""
         self.input_values = {}
-        
-        for var in input_vars:
+        for var in self.current_config.get_input_variables():
             min_val, max_val = var.universe
             self.input_values[var.name] = (min_val + max_val) / 2
     
     def _create_components(self):
-        """Create UI components."""
-        # Input sliders
-        self.input_sliders = InputSliders(
-            config=self.config,
-            input_values=self.input_values
+        """Crear componentes de la UI."""
+        # Selector de plantillas
+        self.template_selector = pn.widgets.Select(
+            name="Plantilla",
+            options=["Política Arancelaria", "Gestión Inventarios", "Riesgo Operativo"],
+            value="Política Arancelaria",
+            width=200
         )
-        self.input_sliders.param.watch(self._on_input_change, 'input_values')
         
-        # Membership visualization
-        self.membership_viz = MembershipVisualization(config=self.config)
+        # Sliders de entrada
+        self.input_sliders = {}
+        for var in self.current_config.get_input_variables():
+            min_val, max_val = var.universe
+            current_val = self.input_values.get(var.name, (min_val + max_val) / 2)
+            
+            slider = pn.widgets.FloatSlider(
+                name=f"{var.name}: {current_val:.1f}",
+                start=min_val,
+                end=max_val,
+                value=current_val,
+                step=(max_val - min_val) / 100,
+                width=300
+            )
+            self.input_sliders[var.name] = slider
+            slider.param.watch(lambda event, var_name=var.name: self._on_slider_change(event, var_name), 'value')
         
-        # Rule table
-        self.rule_table = RuleTable(config=self.config)
-        
-        # Output display
-        self.output_display = OutputDisplay()
-        
-        # Explanation panel
-        self.explanation_panel = ExplanationPanel()
-        
-        # System configuration panel
-        self.config_panel = SystemConfigPanel(
-            config=self.config,
-            config_loader=self.config_loader
+        # Botón de inferencia
+        self.inference_button = pn.widgets.Button(
+            name="🚀 Ejecutar Inferencia REAL",
+            button_type="primary",
+            width=250
         )
-        self.config_panel.param.watch(self._on_config_change, 'config')
-    
-    def _on_input_change(self, event):
-        """Handle input value changes."""
-        self.input_values = event.new
-        self._update_inference()
-    
-    def _on_config_change(self, event):
-        """Handle configuration changes."""
-        self.config = event.new
-        self._update_inference()
-        self._refresh_components()
-    
-    def _refresh_components(self):
-        """Refresh all components with new configuration."""
-        # Update input sliders
-        self.input_sliders.config = self.config
-        self.input_sliders.input_values = self.input_values
+        self.inference_button.on_click(self._run_inference)
         
-        # Update membership visualization
-        self.membership_viz.config = self.config
+        # Área de resultados
+        self.results_panel = pn.pane.HTML("", width=400, height=200)
         
-        # Update rule table
-        self.rule_table.config = self.config
+        # Área de reglas
+        self.rules_panel = pn.pane.HTML("", width=600, height=400)
         
-        # Update inference engine
-        self.inference_engine = create_inference_engine(self.config)
+        # Editor de reglas
+        self.rule_id_input = pn.widgets.TextInput(name="ID de Regla", value="R4", width=100)
+        self.rule_condition_input = pn.widgets.TextAreaInput(
+            name="Condición (SI)", 
+            value="Déficit is Medio AND Presión is Alta",
+            height=100,
+            width=400
+        )
+        self.rule_conclusion_var = pn.widgets.Select(
+            name="Variable de Conclusión",
+            options=[var.name for var in self.current_config.get_output_variables()],
+            value="Tarifa",
+            width=150
+        )
+        self.rule_conclusion_term = pn.widgets.Select(
+            name="Término de Conclusión",
+            options=["Baja", "Moderada", "Alta"],
+            value="Moderada",
+            width=150
+        )
+        
+        # Botones de acción
+        self.add_rule_button = pn.widgets.Button(
+            name="+ Agregar Regla",
+            button_type="success",
+            width=120
+        )
+        self.add_rule_button.on_click(self._add_rule)
+        
+        self.edit_rule_button = pn.widgets.Button(
+            name="✏️ Editar Regla",
+            button_type="primary",
+            width=120
+        )
+        self.edit_rule_button.on_click(self._edit_rule)
+        
+        self.delete_rule_button = pn.widgets.Button(
+            name="🗑️ Eliminar Regla",
+            button_type="danger",
+            width=120
+        )
+        self.delete_rule_button.on_click(self._delete_rule)
+        
+        # Selector de regla para editar/eliminar
+        self.rule_selector = pn.widgets.Select(
+            name="Seleccionar Regla",
+            options=[rule.id for rule in self.current_config.rules],
+            value=self.current_config.rules[0].id if self.current_config.rules else None,
+            width=150
+        )
+        self.rule_selector.param.watch(self._on_rule_selection_change, 'value')
+        
+        # Actualizar reglas al inicio
+        self._update_rules_display()
     
-    def _update_inference(self, *events):
-        """Update inference results."""
+    def _on_slider_change(self, event, var_name):
+        """Manejar cambios en sliders."""
+        self.input_values[var_name] = event.new
+        # Actualizar nombre del slider
+        slider = self.input_sliders[var_name]
+        slider.name = f"{var_name}: {event.new:.1f}"
+    
+    def _run_inference(self, event):
+        """Ejecutar inferencia difusa."""
         try:
-            # Create inference engine if not exists
-            if self.inference_engine is None:
-                self.inference_engine = create_inference_engine(self.config)
+            # Crear motor de inferencia
+            engine = create_inference_engine(self.current_config)
             
-            # Run inference
-            self.inference_result = self.inference_engine.infer(self.input_values)
+            # Ejecutar inferencia
+            result = engine.infer(self.input_values)
             
-            # Create explanation
-            self.explanation = create_explanation(self.inference_result, self.config)
+            # Actualizar resultados
+            self.inference_result = result
+            self._update_results_display(result)
             
-            # Update output display
-            self.output_display.update_results(self.inference_result, self.explanation)
-            
-            # Update explanation panel
-            self.explanation_panel.update_explanation(self.explanation)
-            
-            # Update membership visualization
-            self.membership_viz.update_inputs(self.input_values)
-            self.membership_viz.update_outputs(self.inference_result)
-            
-            # Update rule table
-            self.rule_table.update_fired_rules(self.inference_result.fired_rules)
+            # Actualizar reglas activadas
+            self._update_rules_display()
             
         except Exception as e:
-            # Show error in output display
-            self.output_display.show_error(str(e))
+            self.results_panel.object = f"""
+            <div style="background-color: #ffebee; border: 1px solid #f44336; padding: 10px; border-radius: 5px;">
+                <h4 style="color: #d32f2f; margin: 0;">❌ Error en Motor Difuso</h4>
+                <p style="margin: 5px 0; color: #d32f2f;">{str(e)}</p>
+            </div>
+            """
+    
+    def _update_results_display(self, result: FuzzyInferenceResult):
+        """Actualizar display de resultados."""
+        html = """
+        <div style="background-color: #e8f5e8; border: 1px solid #4caf50; padding: 15px; border-radius: 5px;">
+            <h3 style="color: #2e7d32; margin: 0 0 10px 0;">🎯 Resultados de Inferencia</h3>
+        """
+        
+        for var_name, value in result.outputs.items():
+            html += f"""
+            <div style="margin: 10px 0; padding: 10px; background-color: white; border-radius: 3px;">
+                <strong>{var_name}:</strong> {value:.3f}
+            </div>
+            """
+        
+        html += """
+            <div style="margin-top: 15px; font-size: 0.9em; color: #666;">
+                <strong>Reglas activadas:</strong> {fired_count}<br>
+                <strong>Confianza máxima:</strong> {max_activation:.3f}
+            </div>
+        </div>
+        """.format(
+            fired_count=len(result.fired_rules),
+            max_activation=max([r["activation_degree"] for r in result.fired_rules]) if result.fired_rules else 0
+        )
+        
+        self.results_panel.object = html
+    
+    def _update_rules_display(self):
+        """Actualizar display de reglas."""
+        html = """
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px;">
+            <h3 style="margin: 0 0 15px 0;">📋 Reglas del Sistema</h3>
+            <table style="width: 100%; border-collapse: collapse; background-color: white; border-radius: 5px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <thead>
+                    <tr style="background-color: #2196F3; color: white;">
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #1976D2;">ID</th>
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #1976D2;">Condición (SI)</th>
+                        <th style="padding: 12px; text-align: left; border-bottom: 2px solid #1976D2;">Conclusión (ENTONCES)</th>
+                        <th style="padding: 12px; text-align: center; border-bottom: 2px solid #1976D2;">Estado</th>
+                        <th style="padding: 12px; text-align: center; border-bottom: 2px solid #1976D2;">Activación</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for i, rule in enumerate(self.current_config.rules):
+            # Verificar si la regla está activa
+            is_active = False
+            activation_degree = 0.0
+            
+            if self.inference_result:
+                for fired_rule in self.inference_result.fired_rules:
+                    if fired_rule["id"] == rule.id:
+                        is_active = True
+                        activation_degree = fired_rule["activation_degree"]
+                        break
+            
+            # Colores alternados para filas
+            row_color = "#f8f9fa" if i % 2 == 0 else "white"
+            status_color = "#4caf50" if is_active else "#757575"
+            status_text = "✅ Activada" if is_active else "⚪ Inactiva"
+            activation_text = f"{activation_degree:.3f}" if is_active else "0.000"
+            
+            html += f"""
+                    <tr style="background-color: {row_color};">
+                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #1976D2;">{rule.id}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">{rule.if_condition}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: {status_color}; font-weight: bold;">→ {rule.then_conclusions[0].variable} es {rule.then_conclusions[0].term}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center; color: {status_color};">{status_text}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center; font-weight: bold; color: {status_color};">{activation_text}</td>
+                    </tr>
+            """
+        
+        html += """
+                </tbody>
+            </table>
+        </div>
+        """
+        self.rules_panel.object = html
+    
+    def _add_rule(self, event):
+        """Agregar nueva regla."""
+        try:
+            # Crear nueva regla
+            from core.schema import Rule, RuleConclusion
+            
+            new_rule = Rule(
+                id=self.rule_id_input.value,
+                if_condition=self.rule_condition_input.value,
+                then_conclusions=[
+                    RuleConclusion(
+                        variable=self.rule_conclusion_var.value,
+                        term=self.rule_conclusion_term.value
+                    )
+                ],
+                weight=1.0,
+                note="Regla agregada desde la interfaz"
+            )
+            
+            # Agregar a la configuración
+            self.current_config.rules.append(new_rule)
+            
+            # Actualizar selector de reglas
+            self._update_rule_selector()
+            
+            # Actualizar display
+            self._update_rules_display()
+            
+            # Limpiar campos
+            self.rule_condition_input.value = ""
+            
+        except Exception as e:
+            print(f"Error agregando regla: {e}")
+    
+    def _edit_rule(self, event):
+        """Editar regla existente."""
+        try:
+            if not self.rule_selector.value:
+                return
+            
+            # Buscar la regla a editar
+            rule_to_edit = None
+            for rule in self.current_config.rules:
+                if rule.id == self.rule_selector.value:
+                    rule_to_edit = rule
+                    break
+            
+            if not rule_to_edit:
+                return
+            
+            # Actualizar la regla
+            from core.schema import RuleConclusion
+            
+            rule_to_edit.if_condition = self.rule_condition_input.value
+            rule_to_edit.then_conclusions = [
+                RuleConclusion(
+                    variable=self.rule_conclusion_var.value,
+                    term=self.rule_conclusion_term.value
+                )
+            ]
+            rule_to_edit.note = "Regla editada desde la interfaz"
+            
+            # Actualizar display
+            self._update_rules_display()
+            
+            # Limpiar campos
+            self.rule_condition_input.value = ""
+            
+        except Exception as e:
+            print(f"Error editando regla: {e}")
+    
+    def _delete_rule(self, event):
+        """Eliminar regla existente."""
+        try:
+            if not self.rule_selector.value:
+                return
+            
+            # Confirmar eliminación
+            if len(self.current_config.rules) <= 1:
+                print("No se puede eliminar la última regla del sistema")
+                return
+            
+            # Eliminar la regla
+            self.current_config.rules = [
+                rule for rule in self.current_config.rules 
+                if rule.id != self.rule_selector.value
+            ]
+            
+            # Actualizar selector de reglas
+            self._update_rule_selector()
+            
+            # Actualizar display
+            self._update_rules_display()
+            
+            # Limpiar campos
+            self.rule_condition_input.value = ""
+            
+        except Exception as e:
+            print(f"Error eliminando regla: {e}")
+    
+    def _update_rule_selector(self):
+        """Actualizar opciones del selector de reglas."""
+        rule_ids = [rule.id for rule in self.current_config.rules]
+        self.rule_selector.options = rule_ids
+        if rule_ids:
+            self.rule_selector.value = rule_ids[0]
+        else:
+            self.rule_selector.value = None
+    
+    def _on_rule_selection_change(self, event):
+        """Manejar cambio de selección de regla."""
+        if not event.new:
+            return
+        
+        # Buscar la regla seleccionada
+        selected_rule = None
+        for rule in self.current_config.rules:
+            if rule.id == event.new:
+                selected_rule = rule
+                break
+        
+        if selected_rule:
+            # Cargar datos de la regla en los campos
+            self.rule_id_input.value = selected_rule.id
+            self.rule_condition_input.value = selected_rule.if_condition
+            self.rule_conclusion_var.value = selected_rule.then_conclusions[0].variable
+            self.rule_conclusion_term.value = selected_rule.then_conclusions[0].term
+    
+    def _create_main_layout(self) -> pn.layout.Panel:
+        """Crear layout principal."""
+        
+        # Header
+        header = pn.pane.HTML("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; padding: 20px; text-align: center; border-radius: 10px; margin-bottom: 20px;">
+            <h1 style="margin: 0; font-size: 2.5em;">🧠 Sistema Experto Difuso</h1>
+            <p style="margin: 10px 0 0 0; font-size: 1.2em;">Motor Difuso Real + Editor de Reglas</p>
+        </div>
+        """, width=800)
+        
+        # Panel izquierdo - Controles
+        left_panel = pn.Column(
+            pn.pane.HTML("<h3>🎛️ Control de Entrada</h3>"),
+            *self.input_sliders.values(),
+            self.inference_button,
+            pn.pane.HTML("<br>"),
+            self.results_panel,
+            width=450,
+            sizing_mode='fixed'
+        )
+        
+        # Panel derecho - Reglas y Editor
+        right_panel = pn.Column(
+            pn.pane.HTML("<h3>📝 Editor de Reglas</h3>"),
+            pn.Row(
+                self.rule_selector,
+                pn.pane.HTML("<br>")
+            ),
+            pn.Row(
+                self.rule_id_input,
+                self.rule_conclusion_var,
+                self.rule_conclusion_term
+            ),
+            self.rule_condition_input,
+            pn.Row(
+                self.add_rule_button,
+                self.edit_rule_button,
+                self.delete_rule_button
+            ),
+            pn.pane.HTML("<br>"),
+            self.rules_panel,
+            width=650,
+            sizing_mode='fixed'
+        )
+        
+        # Información del sistema
+        info_panel = pn.pane.HTML(f"""
+        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin-top: 20px;">
+            <h4 style="margin: 0 0 10px 0;">ℹ️ Información del Sistema</h4>
+            <p><strong>Proyecto:</strong> {self.current_config.project}</p>
+            <p><strong>Variables:</strong> {len(self.current_config.variables)}</p>
+            <p><strong>Reglas:</strong> {len(self.current_config.rules)}</p>
+            <p><strong>Motor:</strong> Difuso Real</p>
+        </div>
+        """)
+        
+        # Layout principal
+        main_layout = pn.Column(
+            header,
+            pn.Row(left_panel, right_panel),
+            info_panel,
+            sizing_mode='stretch_width',
+            margin=(0, 20, 20, 20)
+        )
+        
+        return main_layout
     
     def get_layout(self) -> pn.layout.Panel:
-        """Get the main application layout."""
-        # Create tabs
-        tabs = pn.Tabs(
-            ("Inferencia y Visualización", self._create_inference_tab()),
-            ("Reglas", self._create_rules_tab()),
-            ("Configuración", self._create_config_tab()),
-            ("Exportar", self._create_export_tab()),
-            dynamic=True,
-            sizing_mode='stretch_width'
-        )
-        
-        return pn.Column(
-            pn.pane.HTML("<h1>Panel de Sistema Experto Difuso</h1>", margin=(10, 10, 0, 10)),
-            tabs,
-            sizing_mode='stretch_width',
-            margin=(0, 10, 10, 10)
-        )
+        """Obtener el layout principal."""
+        return self.main_layout
+
+
+def create_modern_app():
+    """Crear la aplicación moderna."""
+    # Configurar Panel
+    pn.extension('tabulator', sizing_mode='stretch_width')
     
-    def _create_inference_tab(self) -> pn.layout.Panel:
-        """Create the inference and visualization tab."""
-        return pn.Column(
-            pn.Row(
-                pn.Column(
-                    pn.pane.HTML("<h3>Variables de Entrada</h3>"),
-                    self.input_sliders.get_layout(),
-                    width=400
-                ),
-                pn.Column(
-                    pn.pane.HTML("<h3>Resultados</h3>"),
-                    self.output_display.get_layout(),
-                    sizing_mode='stretch_width'
-                ),
-                sizing_mode='stretch_width'
-            ),
-            pn.pane.HTML("<h3>Visualización de Funciones de Pertenencia</h3>"),
-            self.membership_viz.get_layout(),
-            pn.pane.HTML("<h3>Explicación del Proceso</h3>"),
-            self.explanation_panel.get_layout(),
-            sizing_mode='stretch_width'
-        )
+    # Crear aplicación
+    app = ModernFuzzyPanel()
     
-    
-    def _create_rules_tab(self) -> pn.layout.Panel:
-        """Create the rules tab."""
-        return pn.Column(
-            pn.pane.HTML("<h3>Reglas Activas</h3>"),
-            self.rule_table.get_layout(),
-            sizing_mode='stretch_width'
-        )
-    
-    def _create_config_tab(self) -> pn.layout.Panel:
-        """Create the configuration tab."""
-        return pn.Column(
-            pn.pane.HTML("<h3>Configuración del Sistema</h3>"),
-            self.config_panel.get_layout(),
-            sizing_mode='stretch_width'
-        )
-    
-    def _create_export_tab(self) -> pn.layout.Panel:
-        """Create the export tab."""
-        export_buttons = pn.Row(
-            pn.widgets.Button(name="Exportar Reporte HTML", button_type="primary"),
-            pn.widgets.Button(name="Exportar Reporte PDF", button_type="primary"),
-            pn.widgets.Button(name="Exportar Configuración JSON", button_type="primary"),
-            pn.widgets.Button(name="Guardar Configuración", button_type="success"),
-            pn.widgets.Button(name="Cargar Configuración", button_type="warning")
-        )
-        
-        # Connect export buttons
-        export_buttons[0].on_click(self._export_html_report)
-        export_buttons[1].on_click(self._export_pdf_report)
-        export_buttons[2].on_click(self._export_json_config)
-        export_buttons[3].on_click(self._save_configuration)
-        export_buttons[4].on_click(self._load_configuration)
-        
-        return pn.Column(
-            pn.pane.HTML("<h3>Opciones de Exportación</h3>"),
-            export_buttons,
-            pn.pane.HTML("<h3>Información del Sistema</h3>"),
-            self._create_system_info_panel(),
-            sizing_mode='stretch_width'
-        )
-    
-    def _create_system_info_panel(self) -> pn.layout.Panel:
-        """Create system information panel."""
-        info_data = {
-            "Proyecto": self.config.project,
-            "Versión del Esquema": self.config.schema_version,
-            "Total de Variables": len(self.config.variables),
-            "Variables de Entrada": len(self.config.get_input_variables()),
-            "Variables de Salida": len(self.config.get_output_variables()),
-            "Total de Reglas": len(self.config.rules),
-            "Configuración Lógica": f"AND: {self.config.logic.and_op}, OR: {self.config.logic.or_op}"
-        }
-        
-        import pandas as pd
-        info_table = pn.widgets.DataFrame(
-            value=pd.DataFrame([{"Propiedad": k, "Valor": str(v)} for k, v in info_data.items()]),
-            height=200
-        )
-        
-        return info_table
-    
-    def _export_html_report(self, event):
-        """Export HTML report."""
-        if self.inference_result is None:
-            pn.state.notifications.error("No inference results to export")
-            return
-        
-        try:
-            html_content = self.report_generator.generate_html_report(
-                self.inference_result, self.config, self.explanation
-            )
-            
-            # Save to file
-            output_path = Path("fuzzy_report.html")
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            
-            print(f"✓ Reporte HTML guardado en {output_path}")
-            
-        except Exception as e:
-            print(f"✗ Error exportando reporte HTML: {e}")
-    
-    def _export_pdf_report(self, event):
-        """Export PDF report."""
-        if self.inference_result is None:
-            print("✗ No hay resultados de inferencia para exportar")
-            return
-        
-        try:
-            output_path = self.report_generator.generate_pdf_report(
-                self.inference_result, self.config, self.explanation,
-                output_path="fuzzy_report.pdf"
-            )
-            
-            print(f"✓ Reporte PDF guardado en {output_path}")
-            
-        except Exception as e:
-            print(f"✗ Error exportando reporte PDF: {e}")
-    
-    def _export_json_config(self, event):
-        """Export JSON configuration."""
-        try:
-            json_content = self.config_loader.save_to_json(self.config)
-            
-            # Save to file
-            output_path = Path("fuzzy_config.json")
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(json_content)
-            
-            print(f"✓ Configuración JSON guardada en {output_path}")
-            
-        except Exception as e:
-            print(f"✗ Error exportando configuración JSON: {e}")
-    
-    def _save_configuration(self, event):
-        """Save configuration to file."""
-        try:
-            # For now, save to default location
-            output_path = Path("saved_config.json")
-            self.config_loader.save_to_file(self.config, output_path)
-            
-            print(f"✓ Configuración guardada en {output_path}")
-            
-        except Exception as e:
-            print(f"✗ Error guardando configuración: {e}")
-    
-    def _load_configuration(self, event):
-        """Load configuration from file."""
-        try:
-            # For now, load from examples
-            example_path = Path("fuzzy_panel/examples/politica_arancelaria.json")
-            if example_path.exists():
-                self.config = self.config_loader.load_from_file(example_path)
-                print("✓ Configuración cargada exitosamente")
-            else:
-                print("✗ Archivo de configuración de ejemplo no encontrado")
-                
-        except Exception as e:
-            print(f"✗ Error cargando configuración: {e}")
+    return app.get_layout()
+
