@@ -423,9 +423,8 @@ def create_example_config() -> FuzzySystemConfig:
                 kind="input",
                 universe=[0.0, 10.0],
                 terms=[
-                    Term(label="Bajo", mf=TriangularMF(a=0.0, b=0.0, c=4.0)),
-                    Term(label="Medio", mf=TriangularMF(a=2.5, b=5.0, c=7.5)),
-                    Term(label="Alto", mf=TriangularMF(a=6.0, b=10.0, c=10.0))
+                    Term(label="Bajo", mf=TriangularMF(a=0.0, b=0.0, c=5.0)),
+                    Term(label="Alto", mf=TriangularMF(a=5.0, b=10.0, c=10.0))
                 ]
             ),
             Variable(
@@ -433,9 +432,8 @@ def create_example_config() -> FuzzySystemConfig:
                 kind="input",
                 universe=[0.0, 100.0],
                 terms=[
-                    Term(label="Baja", mf=TriangularMF(a=0.0, b=0.0, c=40.0)),
-                    Term(label="Media", mf=TriangularMF(a=20.0, b=50.0, c=80.0)),
-                    Term(label="Alta", mf=TriangularMF(a=60.0, b=100.0, c=100.0))
+                    Term(label="Baja", mf=TriangularMF(a=0.0, b=0.0, c=50.0)),
+                    Term(label="Alta", mf=TriangularMF(a=50.0, b=100.0, c=100.0))
                 ]
             ),
             Variable(
@@ -444,9 +442,8 @@ def create_example_config() -> FuzzySystemConfig:
                 universe=[0.0, 100.0],
                 defuzz="centroid",
                 terms=[
-                    Term(label="Baja", mf=TriangularMF(a=0.0, b=0.0, c=30.0)),
-                    Term(label="Moderada", mf=TriangularMF(a=20.0, b=50.0, c=80.0)),
-                    Term(label="Alta", mf=TriangularMF(a=70.0, b=100.0, c=100.0))
+                    Term(label="Baja", mf=TriangularMF(a=0.0, b=25.0, c=50.0)),
+                    Term(label="Alta", mf=TriangularMF(a=50.0, b=75.0, c=100.0))
                 ]
             )
         ],
@@ -460,38 +457,31 @@ def create_example_config() -> FuzzySystemConfig:
             ),
             Rule(
                 id="R2",
-                if_condition="Déficit is Medio AND Presión is Alta",
-                then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
-                weight=1.0,
-                note="Déficit medio con alta presión requiere tarifa alta"
-            ),
-            Rule(
-                id="R3",
                 if_condition="Déficit is Alto AND Presión is Alta",
                 then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
                 weight=1.0,
                 note="Situación crítica, tarifa alta necesaria"
             ),
             Rule(
-                id="R4",
+                id="R3",
                 if_condition="Déficit is Alto OR Presión is Alta",
-                then_conclusions=[RuleConclusion(variable="Tarifa", term="Moderada")],
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
                 weight=0.8,
-                note="Cualquier condición extrema requiere tarifa moderada"
+                note="Cualquier condición extrema requiere tarifa alta"
+            ),
+            Rule(
+                id="R4",
+                if_condition="NOT Déficit is Bajo",
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
+                weight=0.7,
+                note="Si el déficit no es bajo, aplicar tarifa alta"
             ),
             Rule(
                 id="R5",
-                if_condition="NOT Déficit is Bajo",
-                then_conclusions=[RuleConclusion(variable="Tarifa", term="Moderada")],
-                weight=0.7,
-                note="Si el déficit no es bajo, aplicar tarifa moderada"
-            ),
-            Rule(
-                id="R6",
-                if_condition="(Déficit is Medio OR Déficit is Alto) AND NOT Presión is Baja",
-                then_conclusions=[RuleConclusion(variable="Tarifa", term="Alta")],
-                weight=0.9,
-                note="Déficit medio/alto con presión no baja = tarifa alta"
+                if_condition="(Déficit is Bajo AND NOT Presión is Baja) OR (NOT Déficit is Bajo AND Presión is Baja)",
+                then_conclusions=[RuleConclusion(variable="Tarifa", term="Baja")],
+                weight=0.6,
+                note="Condiciones mixtas requieren tarifa baja"
             )
         ]
     )
@@ -661,7 +651,7 @@ class FuzzySystemApp(param.Parameterized):
                     <li><strong>Nombre:</strong> Identificador único de la variable</li>
                     <li><strong>Tipo:</strong> input (entrada) o output (salida)</li>
                     <li><strong>Universo:</strong> Rango mínimo y máximo de valores</li>
-                    <li><strong>Términos:</strong> Etiquetas lingüísticas (Bajo, Medio, Alto)</li>
+                    <li><strong>Términos:</strong> Etiquetas lingüísticas (Bajo, Alto)</li>
                 </ul>
             </div>
             
@@ -765,35 +755,25 @@ class FuzzySystemApp(param.Parameterized):
             width=100
         )
         
-        # Editor de términos
+        # Editor de términos (solo 2 términos)
         self.term_low_input = pn.widgets.TextInput(
             name="Término Bajo",
             value="Bajo",
-            width=120
-        )
-        
-        self.term_medium_input = pn.widgets.TextInput(
-            name="Término Medio",
-            value="Medio",
-            width=120
+            width=150
         )
         
         self.term_high_input = pn.widgets.TextInput(
             name="Término Alto",
             value="Alto",
-            width=120
+            width=150
         )
         
-        # Parámetros de funciones de pertenencia
+        # Parámetros de funciones de pertenencia (solo 2 términos)
         self.mf_low_a = pn.widgets.NumberInput(name="Bajo A", value=0.0, width=80)
         self.mf_low_b = pn.widgets.NumberInput(name="Bajo B", value=0.0, width=80)
-        self.mf_low_c = pn.widgets.NumberInput(name="Bajo C", value=30.0, width=80)
+        self.mf_low_c = pn.widgets.NumberInput(name="Bajo C", value=50.0, width=80)
         
-        self.mf_medium_a = pn.widgets.NumberInput(name="Medio A", value=20.0, width=80)
-        self.mf_medium_b = pn.widgets.NumberInput(name="Medio B", value=50.0, width=80)
-        self.mf_medium_c = pn.widgets.NumberInput(name="Medio C", value=80.0, width=80)
-        
-        self.mf_high_a = pn.widgets.NumberInput(name="Alto A", value=70.0, width=80)
+        self.mf_high_a = pn.widgets.NumberInput(name="Alto A", value=50.0, width=80)
         self.mf_high_b = pn.widgets.NumberInput(name="Alto B", value=100.0, width=80)
         self.mf_high_c = pn.widgets.NumberInput(name="Alto C", value=100.0, width=80)
         
@@ -847,11 +827,11 @@ class FuzzySystemApp(param.Parameterized):
             width=150
         )
         
-        # Obtener términos disponibles para la variable seleccionada
+        # Obtener términos disponibles para la variable seleccionada (solo 2 términos)
         self.rule_conclusion_term = pn.widgets.Select(
             name="Término de Conclusión",
-            options=["Baja", "Moderada", "Alta"],
-            value="Moderada",
+            options=["Baja", "Alta"],
+            value="Baja",
             width=150
         )
         
@@ -945,6 +925,23 @@ class FuzzySystemApp(param.Parameterized):
                     <strong>Interpretación Lingüística:</strong> 
                     <span style="color: #FF6B35; font-weight: bold;">{linguistic['best_term']}</span>
                     <span style="color: #666; font-size: 0.9em;">(Confianza: {linguistic['confidence']:.3f})</span>
+            """
+            
+            # Mostrar información adicional según el tipo de interpretación
+            if linguistic['interpretation_type'] == 'ambiguous':
+                html += f"""
+                    <br><span style="color: #FF9800; font-size: 0.85em; font-style: italic;">
+                        ⚠️ Ambiguo: Múltiples términos con igual confianza máxima
+                    </span>
+                """
+            elif linguistic['interpretation_type'] == 'no_membership':
+                html += f"""
+                    <br><span style="color: #f44336; font-size: 0.85em; font-style: italic;">
+                        ⚠️ Sin pertenencia: El valor no pertenece a ningún término
+                    </span>
+                """
+            
+            html += """
                 </div>
                 <div style="font-size: 0.9em; color: #666;">
                     <strong>Todos los términos:</strong>
@@ -952,7 +949,11 @@ class FuzzySystemApp(param.Parameterized):
             """
             
             for term, confidence in linguistic['all_terms'].items():
-                html += f"<li>{term}: {confidence:.3f}</li>"
+                # Resaltar términos ambiguos
+                if term in linguistic.get('ambiguous_terms', []):
+                    html += f"<li><strong>{term}: {confidence:.3f}</strong> <span style='color: #FF9800;'>(ambiguo)</span></li>"
+                else:
+                    html += f"<li>{term}: {confidence:.3f}</li>"
             
             html += """
                     </ul>
@@ -973,33 +974,65 @@ class FuzzySystemApp(param.Parameterized):
         self.results_panel.object = html
     
     def _get_linguistic_interpretation(self, var_name: str, crisp_value: float) -> Dict[str, Any]:
-        """Obtener interpretación lingüística del resultado."""
+        """Obtener interpretación lingüística del resultado conforme a la teoría de sistemas difusos."""
         var = self.current_config.get_variable(var_name)
         if var is None:
-            return {"best_term": "Desconocido", "confidence": 0.0, "all_terms": {}}
+            return {
+                "best_term": "Desconocido", 
+                "confidence": 0.0, 
+                "all_terms": {}, 
+                "ambiguous_terms": [],
+                "interpretation_type": "error"
+            }
         
         # Crear motor temporal para evaluar funciones de pertenencia
         engine = FuzzyInferenceEngine(self.current_config)
         
-        best_term = None
-        best_confidence = 0.0
         all_terms = {}
+        max_confidence = 0.0
+        ambiguous_terms = []
         
+        # Recopilar todas las confianzas y encontrar la máxima
         for term in var.terms:
             key = (var_name, term.label)
             mf = engine.membership_functions[key]
             confidence = float(mf(crisp_value))
             all_terms[term.label] = confidence
             
-            if confidence > best_confidence:
-                best_confidence = confidence
-                best_term = term.label
+            if confidence > max_confidence:
+                max_confidence = confidence
+                ambiguous_terms = [term.label]  # Resetear la lista
+            elif confidence == max_confidence and confidence > 0.0:
+                ambiguous_terms.append(term.label)  # Agregar términos con igual confianza máxima
         
-        return {
-            "best_term": best_term or "Desconocido",
-            "confidence": best_confidence,
-            "all_terms": all_terms
-        }
+        # Determinar el resultado según la teoría de sistemas difusos
+        if max_confidence == 0.0:
+            # Ningún término tiene pertenencia > 0
+            return {
+                "best_term": "Desconocido",
+                "confidence": 0.0,
+                "all_terms": all_terms,
+                "ambiguous_terms": [],
+                "interpretation_type": "no_membership"
+            }
+        elif len(ambiguous_terms) == 1:
+            # Un solo término con máxima confianza
+            return {
+                "best_term": ambiguous_terms[0],
+                "confidence": max_confidence,
+                "all_terms": all_terms,
+                "ambiguous_terms": [],
+                "interpretation_type": "clear"
+            }
+        else:
+            # Múltiples términos con igual confianza máxima (ambigüedad)
+            return {
+                "best_term": "/".join(ambiguous_terms),  # Mostrar todos los términos ambiguos
+                "confidence": max_confidence,
+                "all_terms": all_terms,
+                "ambiguous_terms": ambiguous_terms,
+                "interpretation_type": "ambiguous"
+            }
     
     def _update_rules_display(self):
         """Actualizar display de reglas."""
@@ -1318,7 +1351,7 @@ class FuzzySystemApp(param.Parameterized):
     def _add_variable(self, event):
         """Agregar nueva variable."""
         try:
-            # Crear nueva variable
+            # Crear nueva variable (solo 2 términos)
             new_variable = Variable(
                 name=self.var_name_input.value,
                 kind=self.var_type_select.value,
@@ -1326,9 +1359,6 @@ class FuzzySystemApp(param.Parameterized):
                 terms=[
                     Term(label=self.term_low_input.value, mf=TriangularMF(
                         a=self.mf_low_a.value, b=self.mf_low_b.value, c=self.mf_low_c.value
-                    )),
-                    Term(label=self.term_medium_input.value, mf=TriangularMF(
-                        a=self.mf_medium_a.value, b=self.mf_medium_b.value, c=self.mf_medium_c.value
                     )),
                     Term(label=self.term_high_input.value, mf=TriangularMF(
                         a=self.mf_high_a.value, b=self.mf_high_b.value, c=self.mf_high_c.value
@@ -1378,13 +1408,10 @@ class FuzzySystemApp(param.Parameterized):
             var_to_edit.kind = self.var_type_select.value
             var_to_edit.universe = [self.var_universe_min.value, self.var_universe_max.value]
             
-            # Actualizar términos
+            # Actualizar términos (solo 2 términos)
             var_to_edit.terms = [
                 Term(label=self.term_low_input.value, mf=TriangularMF(
                     a=self.mf_low_a.value, b=self.mf_low_b.value, c=self.mf_low_c.value
-                )),
-                Term(label=self.term_medium_input.value, mf=TriangularMF(
-                    a=self.mf_medium_a.value, b=self.mf_medium_b.value, c=self.mf_medium_c.value
                 )),
                 Term(label=self.term_high_input.value, mf=TriangularMF(
                     a=self.mf_high_a.value, b=self.mf_high_b.value, c=self.mf_high_c.value
@@ -1504,41 +1531,32 @@ class FuzzySystemApp(param.Parameterized):
             self.var_universe_min.value = selected_var.universe[0]
             self.var_universe_max.value = selected_var.universe[1]
             
-            # Cargar términos (asumiendo que siempre hay 3 términos)
-            if len(selected_var.terms) >= 3:
+            # Cargar términos (asumiendo que siempre hay 2 términos)
+            if len(selected_var.terms) >= 2:
                 self.term_low_input.value = selected_var.terms[0].label
-                self.term_medium_input.value = selected_var.terms[1].label
-                self.term_high_input.value = selected_var.terms[2].label
+                self.term_high_input.value = selected_var.terms[1].label
                 
                 # Cargar parámetros de funciones de pertenencia
                 self.mf_low_a.value = selected_var.terms[0].mf.a
                 self.mf_low_b.value = selected_var.terms[0].mf.b
                 self.mf_low_c.value = selected_var.terms[0].mf.c
                 
-                self.mf_medium_a.value = selected_var.terms[1].mf.a
-                self.mf_medium_b.value = selected_var.terms[1].mf.b
-                self.mf_medium_c.value = selected_var.terms[1].mf.c
-                
-                self.mf_high_a.value = selected_var.terms[2].mf.a
-                self.mf_high_b.value = selected_var.terms[2].mf.b
-                self.mf_high_c.value = selected_var.terms[2].mf.c
+                self.mf_high_a.value = selected_var.terms[1].mf.a
+                self.mf_high_b.value = selected_var.terms[1].mf.b
+                self.mf_high_c.value = selected_var.terms[1].mf.c
     
     def _clear_variable_fields(self):
-        """Limpiar campos del editor de variables."""
+        """Limpiar campos del editor de variables (solo 2 términos)."""
         self.var_name_input.value = ""
         self.var_type_select.value = "input"
         self.var_universe_min.value = 0.0
         self.var_universe_max.value = 100.0
         self.term_low_input.value = "Bajo"
-        self.term_medium_input.value = "Medio"
         self.term_high_input.value = "Alto"
         self.mf_low_a.value = 0.0
         self.mf_low_b.value = 0.0
-        self.mf_low_c.value = 30.0
-        self.mf_medium_a.value = 20.0
-        self.mf_medium_b.value = 50.0
-        self.mf_medium_c.value = 80.0
-        self.mf_high_a.value = 70.0
+        self.mf_low_c.value = 50.0
+        self.mf_high_a.value = 50.0
         self.mf_high_b.value = 100.0
         self.mf_high_c.value = 100.0
     
@@ -1577,10 +1595,9 @@ class FuzzySystemApp(param.Parameterized):
                 self.var_universe_min,
                 self.var_universe_max
             ),
-            pn.pane.HTML("<h4>Términos Lingüísticos</h4>"),
+            pn.pane.HTML("<h4>Términos Lingüísticos (Solo 2)</h4>"),
             pn.Row(
                 self.term_low_input,
-                self.term_medium_input,
                 self.term_high_input
             ),
             pn.pane.HTML("<h4>Parámetros de Funciones de Pertenencia</h4>"),
@@ -1589,12 +1606,6 @@ class FuzzySystemApp(param.Parameterized):
                 self.mf_low_a,
                 self.mf_low_b,
                 self.mf_low_c
-            ),
-            pn.pane.HTML("<strong>Término Medio:</strong>"),
-            pn.Row(
-                self.mf_medium_a,
-                self.mf_medium_b,
-                self.mf_medium_c
             ),
             pn.pane.HTML("<strong>Término Alto:</strong>"),
             pn.Row(
